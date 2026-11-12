@@ -1,0 +1,4 @@
+# Optional: Catppuccin-friendly cursor.
+# If no AUR helper is available the installer skips this and Hyprland
+# falls back to the default cursor.
+bibata-cursor-theme-bin

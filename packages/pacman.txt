@@ -1,0 +1,60 @@
+# Core tools
+git
+stow
+curl
+jq
+base-devel
+
+# Terminal and shell
+kitty
+starship
+zoxide
+tmux
+btop
+fastfetch
+cava
+
+# Hyprland session
+hyprland
+hyprpaper
+hyprlock
+hypridle
+hyprpolkitagent
+waybar
+wofi
+mako
+grim
+slurp
+wl-clipboard
+cliphist
+playerctl
+wlogout
+xdg-desktop-portal-hyprland
+
+# Editors and CLI
+neovim
+lazygit
+ripgrep
+fd
+fzf
+bat
+eza
+
+# Desktop utilities
+pavucontrol
+network-manager-applet
+blueman
+imagemagick
+libnotify
+
+# Fonts
+ttf-jetbrains-mono-nerd
+ttf-nerd-fonts-symbols
+
+# Audio / network stack (already present on CachyOS; keeps a fresh Arch install working)
+pipewire
+pipewire-pulse
+wireplumber
+networkmanager
+bluez
+bluez-utils

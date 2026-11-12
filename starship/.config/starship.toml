@@ -1,0 +1,117 @@
+"$schema" = "https://starship.rs/config-schema.json"
+
+palette = "catppuccin_mocha"
+add_newline = true
+command_timeout = 1000
+scan_timeout = 10
+
+format = """
+[╭─](bold #89b4fa)\
+[ $directory ](bg:#89b4fa fg:#1e1e2e)\
+[$git_branch$git_status](bg:#cba6f7 fg:#1e1e2e)\
+[$python$nodejs$rust$golang](bg:#a6e3a1 fg:#1e1e2e)\
+[$cmd_duration](bg:#f9e2af fg:#1e1e2e)\
+$line_break\
+[╰─](bold #89b4fa)$character"""
+
+[character]
+success_symbol = "[❯](bold #a6e3a1)"
+error_symbol = "[❯](bold #f38ba8)"
+vimcmd_symbol = "[❮](bold #a6e3a1)"
+
+[directory]
+style = "bold #1e1e2e"
+format = "[$path]($style)"
+truncation_length = 3
+truncate_to_repo = true
+read_only = " 󰌾"
+
+[git_branch]
+style = "bold #1e1e2e"
+symbol = " "
+format = "[$symbol$branch]($style)"
+
+[git_status]
+style = "bold #1e1e2e"
+format = "[$all_status$ahead_behind]($style)"
+conflicted = "🏳"
+up_to_date = "✓"
+untracked = "?"
+ahead = "⇡"
+behind = "⇣"
+diverged = "⇕"
+stashed = "≡"
+modified = "!"
+staged = "+"
+renamed = "»"
+deleted = "✘"
+
+[python]
+style = "bold #1e1e2e"
+symbol = " "
+format = "[$symbol$version]($style)"
+
+[nodejs]
+style = "bold #1e1e2e"
+symbol = " "
+format = "[$symbol$version]($style)"
+
+[rust]
+style = "bold #1e1e2e"
+symbol = " "
+format = "[$symbol$version]($style)"
+
+[golang]
+style = "bold #1e1e2e"
+symbol = " "
+format = "[$symbol$version]($style)"
+
+[cmd_duration]
+style = "bold #1e1e2e"
+min_time = 2000
+format = "[ 󰔛 $duration]($style)"
+
+[jobs]
+symbol = "+"
+style = "bold #f9e2af"
+
+[username]
+style_user = "bold #cba6f7"
+style_root = "bold #f38ba8"
+format = "[$user]($style)"
+show_always = false
+
+[hostname]
+ssh_only = true
+format = "[@$hostname](bold #89b4fa)"
+
+[time]
+disabled = true
+
+[palettes.catppuccin_mocha]
+rosewater = "#f5e0dc"
+flamingo = "#f2cdcd"
+pink = "#f5c2e7"
+mauve = "#cba6f7"
+red = "#f38ba8"
+maroon = "#eba0ac"
+peach = "#fab387"
+yellow = "#f9e2af"
+green = "#a6e3a1"
+teal = "#94e2d5"
+sky = "#89dceb"
+sapphire = "#74c7ec"
+blue = "#89b4fa"
+lavender = "#b4befe"
+text = "#cdd6f4"
+subtext1 = "#bac2de"
+subtext0 = "#a6adc8"
+overlay2 = "#9399b2"
+overlay1 = "#7f849c"
+overlay0 = "#6c7086"
+surface2 = "#585b70"
+surface1 = "#45475a"
+surface0 = "#313244"
+base = "#1e1e2e"
+mantle = "#181825"
+crust = "#11111b"

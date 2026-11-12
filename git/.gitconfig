@@ -1,0 +1,27 @@
+[user]
+    name = David
+    email = schrammdavid3@gmail.com
+
+[init]
+    defaultBranch = main
+
+[core]
+    editor = nvim
+    pager = less -FRX
+
+[color]
+    ui = auto
+
+[alias]
+    st = status
+    co = checkout
+    br = branch
+    ci = commit
+    lg = log --oneline --graph --decorate --all
+    last = log -1 HEAD
+
+[pull]
+    rebase = true
+
+[push]
+    autoSetupRemote = true

@@ -1,0 +1,11 @@
+# Local install state
+.dotfiles-backup/
+install.log
+*.bak
+*.log
+
+# Fish universal variables are machine-specific
+fish_variables
+
+# Editor / OS cruft
+.DS_Store
