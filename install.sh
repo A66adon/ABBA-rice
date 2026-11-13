@@ -1,40 +1,55 @@
 #!/usr/bin/env bash
-# One-command installer for the dotfiles repository.
+# The only user-facing entry point.
 #
-# Usage:
-#   ./install.sh [--dry-run] [--yes] [--no-packages] [--no-autologin]
-#                [--no-warmup] [--only pkg1,pkg2] [--restore <timestamp>]
+#   ./install.sh                 base install; enabled.txt modules if present
+#   ./install.sh add             pick and install modules
+#   ./install.sh adopt <module>  move your real config into the module
+#   ./install.sh remove <module> unstow and disable a module
+#   ./install.sh host            generate hosts/<hostname>/
+#   ./install.sh doctor          kde-guard diff + lint-paths
+#   ./install.sh list            show modules and enabled state
+#
+# It never changes the login shell, /etc, /usr, systemd units, fonts,
+# GTK/KDE themes, or the user's environment outside Hyprland's own config.
 set -Eeuo pipefail
 
 REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+MODULES_DIR="$REPO_DIR/modules"
+BASE_STOW_DIR="$REPO_DIR/base"
+HOSTS_DIR="$REPO_DIR/hosts"
+
 # shellcheck source=scripts/lib.sh
 source "$REPO_DIR/scripts/lib.sh"
+# shellcheck source=scripts/modules.sh
+source "$REPO_DIR/scripts/modules.sh"
 
-PACKAGES=(hypr waybar wofi mako wlogout kitty fish starship tmux btop fastfetch cava nvim git)
 DRY_RUN=0
 ASSUME_YES=0
 DO_PACKAGES=1
-DO_AUTOLOGIN=1
-DO_WARMUP=1
-DO_VERIFY=1
-ONLY=""
-RESTORE_TS=""
+NONINTERACTIVE=0
+MODE=""
+MODE_ARG=""
+BACKUP_DIR=""
 
 usage() {
   cat <<'EOF'
 Usage: ./install.sh [options]
+       ./install.sh add
+       ./install.sh adopt <module>
+       ./install.sh remove <module>
+       ./install.sh host
+       ./install.sh doctor
+       ./install.sh list
 
-  --dry-run          Show what would happen; change nothing.
-  -y, --yes          Assume yes for confirmations.
-  --no-packages      Do not install pacman/AUR packages.
-  --no-autologin     Do not touch Plasma Login Manager autologin.
-  --no-warmup        Do not pre-install Neovim plugins.
-  --no-verify        Skip the post-install verification step.
-  --only LIST        Only stow these comma-separated packages.
-  --restore TS       Restore a backup from ~/.dotfiles-backup/TS.
-  -h, --help         Show this help.
+Options:
+  --dry-run       Show what would happen; change nothing.
+  -y, --yes       Assume yes for confirmations (still shows the lists).
+  --no-packages   Stow only; do not install packages.
+  -h, --help      Show this help.
 
-Targets CachyOS / Arch Linux only.
+The plain run installs base/packages.txt (Hyprland + kitty + stow/jq/curl).
+If enabled.txt exists, every recorded module and the matching hosts/<hostname>/
+package are installed and stowed non-interactively.
 EOF
 }
 
@@ -43,244 +58,478 @@ while (($#)); do
     --dry-run) DRY_RUN=1 ;;
     -y|--yes) ASSUME_YES=1 ;;
     --no-packages) DO_PACKAGES=0 ;;
-    --no-autologin) DO_AUTOLOGIN=0 ;;
-    --no-warmup) DO_WARMUP=0 ;;
-    --no-verify) DO_VERIFY=0 ;;
-    --only) ONLY="${2:-}"; shift ;;
-    --restore) RESTORE_TS="${2:-}"; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "Unknown option: $1 (try --help)" ;;
+    add) MODE="add" ;;
+    host|doctor|list) MODE="$1" ;;
+    adopt|remove)
+      MODE="$1"
+      shift
+      (($#)) || die "Usage: ./install.sh $MODE <module>"
+      MODE_ARG="$1"
+      ;;
+    -*) die "Unknown option: $1 (try --help)" ;;
+    *) die "Unknown argument: $1 (try --help)" ;;
   esac
   shift
 done
 
-if [[ -n "$RESTORE_TS" ]]; then
-  exec "$REPO_DIR/scripts/restore.sh" "$RESTORE_TS"
-fi
-
-[[ "$EUID" -ne 0 ]] || die "Run as your normal user, not root."
-is_arch || die "This installer targets CachyOS/Arch Linux only."
+[[ "${EUID:-$(id -u)}" -ne 0 ]] || die "Run as your normal user, not root."
+is_arch || die "This installer targets Arch Linux / CachyOS only."
 have pacman || die "pacman not found."
 
-if [[ -n "$ONLY" ]]; then
-  IFS=',' read -r -a PACKAGES <<< "$ONLY"
-  for pkg in "${PACKAGES[@]}"; do
-    [[ -d "$REPO_DIR/$pkg" ]] || die "Unknown package: $pkg"
-  done
-  DO_VERIFY=0
+if [[ -n "$MODE_ARG" ]]; then
+  module_validate "$MODE_ARG"
 fi
 
-if (( DO_PACKAGES )); then
-  keep_sudo_alive
-fi
-
-BACKUP_TS="$(date +%Y%m%d-%H%M%S)"
-BACKUP_DIR="$HOME/.dotfiles-backup/$BACKUP_TS"
-
-info "Repository: $REPO_DIR"
-info "Backup:     $BACKUP_DIR"
-(( DRY_RUN )) && warn "DRY RUN: no changes will be made."
-
-# ---------------------------------------------------------------- packages
-if (( DO_PACKAGES )); then
-  info "Installing pacman packages..."
-  mapfile -t PKGS < <(grep -vE '^[[:space:]]*(#|$)' "$REPO_DIR/packages/pacman.txt")
-  if ((${#PKGS[@]})); then
-    run_sudo pacman -S --needed --noconfirm "${PKGS[@]}"
-  fi
-
-  if [[ -s "$REPO_DIR/packages/aur.txt" ]]; then
-    AUR=""
-    if have paru; then
-      AUR=paru
-    elif have yay; then
-      AUR=yay
-    fi
-    if [[ -n "$AUR" ]]; then
-      mapfile -t AURPKGS < <(grep -vE '^[[:space:]]*(#|$)' "$REPO_DIR/packages/aur.txt")
-      if ((${#AURPKGS[@]})); then
-        info "Installing AUR packages with $AUR..."
-        if (( DRY_RUN )); then
-          printf '  [dry-run] %s -S --needed --noconfirm' "$AUR"
-          printf ' %q' "${AURPKGS[@]}"
-          printf '\n'
-        else
-          "$AUR" -S --needed --noconfirm "${AURPKGS[@]}"
-        fi
-      fi
-    else
-      warn "No AUR helper (paru/yay) found; skipping packages/aur.txt."
-      warn "The demo still works with the default cursor."
-    fi
-  fi
-else
-  info "Skipping package installation (--no-packages)."
-fi
-
-# ---------------------------------------------------------------- backup
-info "Checking for conflicting files..."
-if (( ! DRY_RUN )); then
-  mkdir -p "$BACKUP_DIR"
-  : > "$BACKUP_DIR/manifest.tsv"
-fi
-
-backup_one() {
-  local target="$1"
-  [[ -e "$target" || -L "$target" ]] || return 0
-
-  if [[ -L "$target" ]]; then
-    local resolved
-    resolved="$(readlink -f "$target" || true)"
-    case "$resolved" in
-      "$REPO_DIR"/*) return 0 ;;
-    esac
-  fi
-
-  if [[ -d "$target" && ! -L "$target" ]]; then
-    die "Refusing to move directory '$target' (package path collision)."
-  fi
-
-  local rel="${target#"$HOME"/}"
-  local dest="$BACKUP_DIR/$rel"
-  if (( DRY_RUN )); then
-    info "  would back up $target"
-    return 0
-  fi
-  mkdir -p "$(dirname "$dest")"
-  mv "$target" "$dest"
-  printf '%s\t%s\n' "$target" "$dest" >> "$BACKUP_DIR/manifest.tsv"
-  info "  backed up ${target#"$HOME"/}"
+require_stow() {
+  (( DRY_RUN )) && return 0
+  have stow || die "stow is not installed. Run without --no-packages, or install stow first."
 }
 
-while IFS= read -r target; do
-  backup_one "$target"
-done < <(repo_targets "${PACKAGES[@]}")
+read_base_packages() {
+  awk 'NF && $1 !~ /^#/ {print $1}' "$REPO_DIR/base/packages.txt"
+}
 
-if (( ! DRY_RUN )) && [[ -s "$BACKUP_DIR/manifest.tsv" ]]; then
-  sort -u -o "$BACKUP_DIR/manifest.tsv" "$BACKUP_DIR/manifest.tsv"
-fi
+dedupe_lines() {
+  awk 'NF && !seen[$0]++'
+}
 
-# ---------------------------------------------------------------- stow
-info "Stowing packages: ${PACKAGES[*]}"
-if (( ! DRY_RUN )) && ! have stow; then
-  die "stow is not installed; run without --no-packages or install stow."
-fi
-if (( DRY_RUN )); then
-  printf '  [dry-run] stow --dir=%q --target=%q --no-folding --restow' "$REPO_DIR" "$HOME"
-  printf ' %q' "${PACKAGES[@]}"
-  printf '\n'
-else
-  stow --dir="$REPO_DIR" --target="$HOME" --no-folding --restow --verbose=1 "${PACKAGES[@]}"
-fi
+run_lint() {
+  "$REPO_DIR/scripts/lint-paths"
+}
 
-# ---------------------------------------------------------------- fonts / wallpaper
-if have fc-cache; then
-  run fc-cache -f >/dev/null
-fi
-
-if [[ ! -f "$REPO_DIR/hypr/.config/hypr/wallpapers/catppuccin-mocha.png" ]]; then
-  info "Generating Catppuccin wallpaper..."
-  run "$REPO_DIR/scripts/make-wallpaper.sh"
-fi
-
-# ---------------------------------------------------------------- neovim warm-up
-if (( DO_WARMUP )) && have nvim; then
-  info "Warming up Neovim plugins (network required on first run)..."
+guard_snapshot() {
   if (( DRY_RUN )); then
-    echo "  [dry-run] nvim --headless '+Lazy! sync' +qa"
-  else
-    timeout 300 nvim --headless "+Lazy! sync" +qa || \
-      warn "Neovim plugin sync failed; open nvim and run :Lazy sync."
+    printf '  [dry-run] kde-guard snapshot\n' >&2
+    return 0
   fi
-fi
+  "$REPO_DIR/scripts/kde-guard" snapshot
+}
 
-# ---------------------------------------------------------------- login manager
-if (( DO_AUTOLOGIN )); then
-  if [[ -f /etc/plasmalogin.conf ]]; then
-    if grep -qE '^\[Autologin\]' /etc/plasmalogin.conf && \
-       grep -qE '^User=' /etc/plasmalogin.conf; then
-      info "Disabling Plasma Login Manager autologin (backup kept)..."
-      if (( DRY_RUN )); then
-        echo "  [dry-run] remove User= (keep Session=plasma.desktop) under [Autologin] in /etc/plasmalogin.conf"
-      else
-        mkdir -p "$BACKUP_DIR/etc"
-        sudo cp -a /etc/plasmalogin.conf "$BACKUP_DIR/etc/plasmalogin.conf"
-        printf '%s\t%s\n' "/etc/plasmalogin.conf" "$BACKUP_DIR/etc/plasmalogin.conf" \
-          >> "$BACKUP_DIR/manifest.tsv"
-        tmp="$(mktemp)"
-        awk '
-          /^\[Autologin\]/ { in_auto = 1; print; next }
-          /^\[/           { in_auto = 0 }
-          in_auto && /^User=/ { next }
-          { print }
-        ' /etc/plasmalogin.conf > "$tmp"
-        sudo install -m 644 "$tmp" /etc/plasmalogin.conf
-        rm -f "$tmp"
-      fi
-    else
-      info "Plasma Login Manager autologin is already disabled."
-    fi
-  else
-    info "No /etc/plasmalogin.conf found; leaving display manager config alone."
+guard_diff() {
+  local before="$1" after="$2"
+  [[ -n "$before" && -n "$after" ]] || return 0
+  if ! "$REPO_DIR/scripts/kde-guard" diff "$before" "$after"; then
+    return 1
   fi
-fi
+}
 
-if [[ ! -f /usr/share/wayland-sessions/hyprland.desktop ]]; then
-  if ! have Hyprland && ! have start-hyprland; then
-    warn "Hyprland is not installed; skipping the Wayland session entry."
-  else
-    HYPR_EXEC="Hyprland"
-    if have start-hyprland; then
-      HYPR_EXEC="start-hyprland"
-    fi
-    info "Creating Hyprland Wayland session entry..."
-    if (( DRY_RUN )); then
-      echo "  [dry-run] create /usr/share/wayland-sessions/hyprland.desktop (Exec=$HYPR_EXEC)"
-    else
-      sudo tee /usr/share/wayland-sessions/hyprland.desktop >/dev/null <<EOF
-[Desktop Entry]
-Name=Hyprland
-Comment=An intelligent dynamic tiling Wayland compositor
-Exec=$HYPR_EXEC
-Type=Application
-DesktopNames=Hyprland
-EOF
-    fi
-  fi
-fi
+host_package_name() {
+  current_hostname | tr -d '[:space:]'
+}
 
-# ---------------------------------------------------------------- shell
-CURRENT_SHELL="$(getent passwd "$USER" | cut -d: -f7)"
-if [[ "$(basename "$CURRENT_SHELL")" != "fish" ]]; then
-  info "Setting login shell to fish..."
-  run_sudo chsh -s /usr/bin/fish "$USER"
-fi
+stow_module() {
+  local module="$1"
+  local -a config_paths=()
+  mapfile -t config_paths < <(module_config_paths "$module")
+  stow_package "$MODULES_DIR" "$module" "$(module_scope "$module")" "${config_paths[@]}"
+}
 
-# ---------------------------------------------------------------- verify
-if (( DO_VERIFY )); then
-  info "Verifying installation..."
-  if (( DRY_RUN )); then
-    echo "  [dry-run] scripts/verify.sh"
-  else
-    "$REPO_DIR/scripts/verify.sh" || warn "Verification reported issues; see above."
-  fi
-fi
-
-cat <<EOF
+show_finish() {
+  local -a enabled=()
+  mapfile -t enabled < <(enabled_modules)
+  cat <<EOF
 
 Done.
 
-Next steps:
-  1. Reboot (recommended) or log out. Plasma Login Manager caches its config,
-     so a reboot guarantees the new autologin setting is read.
-  2. At the Plasma Login Manager greeter, open the session menu (bottom-left)
-     and choose "Hyprland".
-  3. KDE Plasma remains untouched and selectable.
+The Hyprland session entry comes from the hyprland package.
+Log out at the login screen and choose Hyprland. KDE Plasma remains selectable.
 
-Backup:   $BACKUP_DIR
-Restore:  $REPO_DIR/install.sh --restore $BACKUP_TS
-
-Key binds: Super+Return terminal, Super+D launcher, Super+E Dolphin,
-Super+1..9 workspaces, Super+L lock, Print screenshot,
-Super+Shift+V clipboard history, Super+Shift+E power menu.
+Enabled modules: ${enabled[*]:-none}
+Add a component:  ./install.sh add
+Record a config:  ./install.sh adopt <module>
+Check KDE state:  ./install.sh doctor
 EOF
+}
+
+main_base() {
+  local -a enabled=() base_pkgs=() module_pkgs=() aur_pkgs=()
+  local -a official=() aur=() new_pkgs=()
+  local m host_name="" host_pkg="" before_file="" after_file=""
+  local guard_before="" guard_after="" guard_failed=0
+
+  if [[ -f "$REPO_DIR/enabled.txt" ]]; then
+    NONINTERACTIVE=1
+    mapfile -t enabled < <(enabled_modules)
+  fi
+
+  mapfile -t base_pkgs < <(read_base_packages)
+  for m in "${enabled[@]}"; do
+    module_validate "$m"
+    while IFS= read -r p; do module_pkgs+=("$p"); done < <(module_packages "$m")
+    while IFS= read -r p; do aur_pkgs+=("$p"); done < <(module_aur_packages "$m")
+  done
+
+  mapfile -t official < <(
+    {
+      printf '%s\n' "${base_pkgs[@]}"
+      printf '%s\n' "${module_pkgs[@]}"
+    } | dedupe_lines
+  )
+  mapfile -t aur < <(printf '%s\n' "${aur_pkgs[@]}" | dedupe_lines)
+
+  host_name="$(host_package_name)"
+  if [[ -n "$host_name" && -d "$HOSTS_DIR/$host_name" ]]; then
+    host_pkg="$host_name"
+  fi
+
+  run_lint
+  if ! guard_before="$(guard_snapshot)"; then
+    warn "kde-guard before snapshot failed; continuing without it."
+    guard_before=""
+  fi
+
+  if (( DO_PACKAGES )); then
+    keep_sudo_alive
+    preview_packages "${official[@]}"
+    red_flag_check "${official[@]}"
+    if (( ! NONINTERACTIVE && ! ASSUME_YES )); then
+      confirm "Proceed with the base install and the modules in enabled.txt?" || die "Aborted by user."
+    fi
+    before_file="$(mktemp)"
+    pacman -Qq | sort > "$before_file"
+    install_packages "${official[@]}"
+    if ((${#aur[@]})); then
+      aur_install "${aur[@]}"
+    fi
+    after_file="$(mktemp)"
+    pacman -Qq | sort > "$after_file"
+    mapfile -t new_pkgs < <(comm -13 "$before_file" "$after_file")
+    rm -f -- "$before_file" "$after_file"
+    if ((${#new_pkgs[@]})); then
+      red_flag_installed "${new_pkgs[@]}"
+    fi
+  else
+    info "Skipping package installation (--no-packages)."
+  fi
+
+  require_stow
+  stow_package "$BASE_STOW_DIR" hypr scoped .config/hypr/hyprland.lua
+  for m in "${enabled[@]}"; do
+    stow_module "$m"
+  done
+  if [[ -n "$host_pkg" ]]; then
+    info "Stowing host package: $host_pkg"
+    stow_package "$HOSTS_DIR" "$host_pkg" scoped \
+      .config/hypr/host.lua .config/waybar/host.jsonc
+  fi
+
+  notice_autologin
+  if ! guard_after="$(guard_snapshot)"; then
+    warn "kde-guard after snapshot failed; continuing without it."
+    guard_after=""
+  fi
+  if ! guard_diff "$guard_before" "$guard_after"; then
+    guard_failed=1
+  fi
+  if ! run_lint; then
+    guard_failed=1
+  fi
+  show_finish
+  if (( guard_failed )); then
+    err "One or more checks failed. Review the kde-guard/lint-paths output above."
+    exit 1
+  fi
+}
+
+main_add() {
+  local -a selected=() pkgs=() aur_pkgs=() new_pkgs=()
+  local m before_file="" after_file=""
+  local guard_before="" guard_after="" guard_failed=0
+
+  mapfile -t selected < <(choose_modules)
+  if ((${#selected[@]} == 0)); then
+    info "No modules selected."
+    return 0
+  fi
+
+  run_lint
+  if ! guard_before="$(guard_snapshot)"; then
+    warn "kde-guard before snapshot failed; continuing without it."
+    guard_before=""
+  fi
+  require_stow
+  if (( DO_PACKAGES )); then
+    keep_sudo_alive
+  fi
+
+  for m in "${selected[@]}"; do
+    module_validate "$m"
+    if is_module_enabled "$m"; then
+      info "Module already enabled: $m (restowing)"
+    fi
+    if [[ "$(module_scope "$m")" == "shared" ]]; then
+      warn "Shared module: $m is reachable from KDE too. A conflict will abort; changes may be visible in KDE."
+    fi
+    pkgs=()
+    aur_pkgs=()
+    mapfile -t pkgs < <(module_packages "$m")
+    mapfile -t aur_pkgs < <(module_aur_packages "$m")
+    if (( DO_PACKAGES )); then
+      if ((${#pkgs[@]})); then
+        preview_packages "${pkgs[@]}"
+        red_flag_check "${pkgs[@]}"
+        if (( ! ASSUME_YES )); then
+          confirm "Install packages for $m?" || die "Aborted by user."
+        fi
+        before_file="$(mktemp)"
+        pacman -Qq | sort > "$before_file"
+        install_packages "${pkgs[@]}"
+        after_file="$(mktemp)"
+        pacman -Qq | sort > "$after_file"
+        mapfile -t new_pkgs < <(comm -13 "$before_file" "$after_file")
+        rm -f -- "$before_file" "$after_file"
+        if ((${#new_pkgs[@]})); then
+          red_flag_installed "${new_pkgs[@]}"
+        fi
+      fi
+      if ((${#aur_pkgs[@]})); then
+        aur_install "${aur_pkgs[@]}"
+      fi
+    else
+      info "Skipping packages for $m (--no-packages)."
+    fi
+    stow_module "$m"
+    if (( DRY_RUN )); then
+      info "[dry-run] enable module: $m"
+    else
+      enable_module "$m"
+    fi
+  done
+
+  if ! guard_after="$(guard_snapshot)"; then
+    warn "kde-guard after snapshot failed; continuing without it."
+    guard_after=""
+  fi
+  if ! guard_diff "$guard_before" "$guard_after"; then
+    guard_failed=1
+  fi
+  if ! run_lint; then
+    guard_failed=1
+  fi
+  info "Configure your new component normally, then run ./install.sh adopt <module>."
+  if (( guard_failed )); then
+    err "One or more checks failed. Review the output above."
+    exit 1
+  fi
+}
+
+main_adopt() {
+  local module="$MODE_ARG" scope path rel src dest resolved file
+  local -a config_paths=() srcs=() rels=()
+  local -a moved_src=() moved_dest=()
+
+  module_validate "$module"
+  require_stow
+  scope="$(module_scope "$module")"
+  mapfile -t config_paths < <(module_config_paths "$module")
+  ((${#config_paths[@]})) || die "Module '$module' declares no config_paths; nothing can be adopted."
+  if [[ "$scope" == "shared" ]]; then
+    warn "Shared module: adopted files are reachable from KDE too."
+  fi
+
+  for path in "${config_paths[@]}"; do
+    path="$HOME/$path"
+    if [[ -L "$path" ]]; then
+      resolved="$(readlink -f -- "$path" 2>/dev/null || true)"
+      if [[ -n "$resolved" && "$resolved" == "$REPO_DIR"/* ]]; then
+        info "Already stowed from the repo: ${path#"$HOME"/}"
+        continue
+      fi
+      die "Refusing to adopt symlink outside the repo: $path -> ${resolved:-broken link}"
+    fi
+    if [[ ! -e "$path" ]]; then
+      info "Not present, nothing to adopt: ${path#"$HOME"/}"
+      continue
+    fi
+    if [[ -d "$path" ]]; then
+      while IFS= read -r -d '' file; do
+        srcs+=("$file")
+        rels+=("${file#"$HOME/"}")
+      done < <(find "$path" -mindepth 1 \( -type f -o -type l \) -print0)
+    else
+      srcs+=("$path")
+      rels+=("${path#"$HOME"/}")
+    fi
+  done
+
+  ((${#srcs[@]})) || { info "Nothing to adopt for $module."; return 0; }
+
+  for rel in "${rels[@]}"; do
+    local found=0 p
+    for p in "${config_paths[@]}"; do
+      if path_in_config_paths "$rel" "$p"; then found=1; break; fi
+    done
+    ((found)) || die "Refusing to adopt path outside config_paths: $rel"
+  done
+
+  for src in "${srcs[@]}"; do
+    rel="${src#"$HOME/"}"
+    dest="$MODULES_DIR/$module/$rel"
+    if [[ -L "$src" ]]; then
+      resolved="$(readlink -f -- "$src" 2>/dev/null || true)"
+      if [[ -n "$resolved" && "$resolved" == "$REPO_DIR"/* ]]; then
+        continue
+      fi
+      die "Refusing to adopt symlink outside the repo: $src -> ${resolved:-broken link}"
+    fi
+    if [[ -e "$dest" ]]; then
+      if [[ -f "$src" && -f "$dest" ]] && cmp -s -- "$src" "$dest"; then
+        continue
+      fi
+      die "Adopt conflict: $dest already exists and differs from $src."
+    fi
+  done
+
+  if (( DRY_RUN )); then
+    for src in "${srcs[@]}"; do
+      rel="${src#"$HOME/"}"
+      if [[ -L "$src" ]]; then
+        resolved="$(readlink -f -- "$src" 2>/dev/null || true)"
+        [[ -n "$resolved" && "$resolved" == "$REPO_DIR"/* ]] && continue
+      fi
+      info "[dry-run] would move ~/$rel -> modules/$module/$rel"
+    done
+    info "[dry-run] would stow module $module after moving the files"
+    return 0
+  fi
+
+  for src in "${srcs[@]}"; do
+    rel="${src#"$HOME/"}"
+    dest="$MODULES_DIR/$module/$rel"
+    if [[ -L "$src" ]]; then
+      resolved="$(readlink -f -- "$src" 2>/dev/null || true)"
+      if [[ -n "$resolved" && "$resolved" == "$REPO_DIR"/* ]]; then
+        continue
+      fi
+    fi
+    if [[ -e "$dest" ]]; then
+      rm -f -- "$src"
+      continue
+    fi
+    mkdir -p -- "$(dirname -- "$dest")"
+    mv -- "$src" "$dest"
+    moved_src+=("$src")
+    moved_dest+=("$dest")
+    info "Adopted ${rel} -> modules/$module/$rel"
+  done
+
+  if ! ( stow_module "$module" ); then
+    local i
+    for i in "${!moved_src[@]}"; do
+      mkdir -p -- "$(dirname -- "${moved_src[$i]}")"
+      mv -- "${moved_dest[$i]}" "${moved_src[$i]}"
+    done
+    die "stow failed after adopt; moved files were restored."
+  fi
+  if ! is_module_enabled "$module"; then
+    enable_module "$module"
+  fi
+  run_lint
+}
+
+main_remove() {
+  local module="$MODE_ARG"
+  local -a pkgs=() removable=() other_pkgs=()
+  local p m keep
+
+  module_validate "$module"
+  require_stow
+  unstow_package "$MODULES_DIR" "$module"
+  if (( DRY_RUN )); then
+    info "[dry-run] disable module: $module"
+  else
+    disable_module "$module"
+  fi
+
+  mapfile -t pkgs < <(module_packages "$module")
+  ((${#pkgs[@]})) || return 0
+  info "Packages recorded by $module: ${pkgs[*]}"
+
+  if (( ! DO_PACKAGES )); then
+    info "Skipping package removal (--no-packages)."
+    return 0
+  fi
+
+  mapfile -t other_pkgs < <(
+    {
+      read_base_packages
+      while IFS= read -r m; do
+        [[ "$m" == "$module" ]] && continue
+        module_packages "$m"
+      done < <(enabled_modules)
+    } | dedupe_lines
+  )
+
+  for p in "${pkgs[@]}"; do
+    keep=0
+    for m in "${other_pkgs[@]}"; do
+      [[ "$p" == "$m" ]] && { keep=1; break; }
+    done
+    ((keep)) || removable+=("$p")
+  done
+
+  if ((${#removable[@]} == 0)); then
+    info "No module-exclusive packages to remove."
+    return 0
+  fi
+  info "Module-exclusive packages: ${removable[*]}"
+  warn "Package removal is never automatic. 'pacman -R' is used without -s/-n so dependencies stay installed."
+  if (( DRY_RUN )); then
+    run_sudo pacman -R -- "${removable[@]}"
+    return 0
+  fi
+  if ! confirm "Uninstall these packages now?"; then
+    info "Packages kept."
+    return 0
+  fi
+  local -a cmd=(pacman -R)
+  (( ASSUME_YES )) && cmd+=(--noconfirm)
+  cmd+=("${removable[@]}")
+  run_sudo "${cmd[@]}"
+}
+
+main_list() {
+  local m scope enabled
+  printf '%-12s %-7s %-14s %-7s %s\n' "MODULE" "SCOPE" "CATEGORY" "ENABLED" "PACKAGES"
+  while IFS= read -r m; do
+    module_validate "$m"
+    scope="$(module_scope "$m")"
+    enabled="no"
+    is_module_enabled "$m" && enabled="yes"
+    printf '%-12s %-7s %-14s %-7s %s\n' \
+      "$m" "$scope" "$(module_field "$m" category)" "$enabled" \
+      "$(module_packages "$m" | paste -sd ', ' -)"
+  done < <(module_names)
+}
+
+main_doctor() {
+  local rc=0
+  run_lint || rc=1
+  if ! "$REPO_DIR/scripts/kde-guard" diff; then
+    rc=1
+  fi
+  if (( rc )); then
+    err "doctor found issues; review the output above."
+    exit 1
+  fi
+  info "doctor: no unexplained diffs and no lint violations."
+}
+
+main_host() {
+  local -a args=()
+  (( DRY_RUN )) && args+=(--dry-run)
+  (( ASSUME_YES )) && args+=(--yes)
+  "$REPO_DIR/scripts/host.sh" "${args[@]}"
+}
+
+case "$MODE" in
+  "") main_base ;;
+  add) main_add ;;
+  adopt) main_adopt ;;
+  remove) main_remove ;;
+  host) main_host ;;
+  doctor) main_doctor ;;
+  list) main_list ;;
+  *) die "Unknown mode: $MODE" ;;
+esac
