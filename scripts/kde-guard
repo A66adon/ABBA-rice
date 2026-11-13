@@ -434,6 +434,9 @@ diff_snapshots() {
   if [[ -s "$new_pkgs_file" ]]; then
     info "New packages:"
     sed 's/^/  /' "$new_pkgs_file"
+    info "Tray/autostart files shipped by new packages:"
+    grep -E '^/(etc/xdg/autostart|usr/share/applications|usr/share/dbus-1/services|usr/lib/systemd/user)/' "$new_pkg_files" |
+      sed 's/^/  /' || true
   fi
 
   local unreadable
