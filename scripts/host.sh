@@ -65,7 +65,7 @@ if have hyprctl && hyprctl monitors -j > "$TMP_DIR/monitors.json" 2>/dev/null; t
         [[ "$scale" =~ ^[0-9]+([.][0-9]+)?$ ]] || scale="1"
         printf 'hl.monitor({ output = "%s", mode = "%sx%s@%s", position = "%sx%s", scale = %s })\n' \
           "$name" "$width" "$height" "$refresh" "$x" "$y" "$scale"
-      done < <(jq -r '.[] | [.name, .width, .height, .refreshRate, .x, .y, .scale] | @tsv' "$TMP_DIR/monitors.json")
+      done < <(jq -r '.[] | [.name, .width, .height, ((.refreshRate * 100 | round) / 100), .x, .y, .scale] | @tsv' "$TMP_DIR/monitors.json")
       printf '\n'
     } >> "$HYPR_CONTENT"
     monitors_written=1
