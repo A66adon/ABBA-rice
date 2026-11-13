@@ -160,11 +160,12 @@ stow_package() {
       if [[ -n "$resolved" && "$resolved" == "$REPO_DIR"/* ]]; then
         die "Conflict: ~/$rel points into another repo package ($resolved); refusing to overwrite it."
       fi
+      die "Conflict: ~/$rel is a symlink outside the repo; refusing to move or replace it."
     fi
 
-    if [[ -e "$target" || -L "$target" ]]; then
-      if [[ -d "$target" && ! -L "$target" ]]; then
-        die "Conflict: ~/$rel is a directory; refusing to replace it."
+    if [[ -e "$target" ]]; then
+      if [[ ! -f "$target" ]]; then
+        die "Conflict: ~/$rel is not a regular file; refusing to replace it."
       fi
       if [[ "$scope" == "scoped" ]] && path_in_config_paths "$rel" "${config_paths[@]}"; then
         conflicts+=("$rel")
