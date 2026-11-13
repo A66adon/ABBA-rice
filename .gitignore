@@ -1,11 +1,5 @@
-# Local install state
-.dotfiles-backup/
-install.log
+# Local runtime state is kept outside the repo under
+# ~/.local/state/<repo>/. These entries are for stray editor/OS files only.
 *.bak
 *.log
-
-# Fish universal variables are machine-specific
-fish_variables
-
-# Editor / OS cruft
 .DS_Store
