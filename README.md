@@ -1,332 +1,320 @@
-# dotfiles — Catppuccin Mocha demo rice
+# A slim Hyprland session next to KDE Plasma
 
-A small, complete starter setup for **CachyOS / Arch Linux** using **GNU Stow**.
-It adds a **Hyprland** session next to your existing **KDE Plasma** session at the
-login screen. **KDE is not modified.**
+This repository adds a **Hyprland session** to a machine where **KDE Plasma is
+already installed and in daily use**. It does not install a theme, a rice, a
+prompt, a font, or a ready-made desktop. The Hyprland starter is deliberately
+minimal: auto-detected monitors, one terminal bind, one close-window bind, and
+one exit bind.
 
-This is a working demo, not a locked-in full rice: edit the files in this repo,
-rerun `stow`, and the changes are live.
+The repo records the components *you* choose. On a new Arch/CachyOS machine,
+`git clone` + `./install.sh` installs the base, every module recorded in
+`enabled.txt`, and the matching `hosts/<hostname>/` package.
 
-## Stack
+There is no website. Everything is done through `./install.sh`.
 
-| Layer | Choice |
-|---|---|
-| Session | Hyprland (KDE Plasma remains the default and is untouched) |
-| Login | Plasma Login Manager session picker (autologin disabled) |
-| Terminal | Kitty |
-| Shell | fish + Starship |
-| Theme | Catppuccin Mocha |
-| Font | JetBrainsMono Nerd Font |
-| Bar | Waybar (all three monitors) |
-| Launcher | Wofi |
-| Notifications | Mako |
-| Wallpaper | Hyprpaper (generated Catppuccin wallpaper) |
-| Lock / idle | Hyprlock + Hypridle |
-| Power menu | wlogout |
-| Multiplexer | tmux |
-| Editor | Neovim + LazyVim |
-| Extras | btop, fastfetch, cava, eza, bat, fd, rg, fzf, zoxide |
+## Requirements
 
-## Repository layout
-
-```text
-~/dotfiles/
-├── install.sh                  # one-command installer
-├── README.md
-├── packages/
-│   ├── pacman.txt              # official repo packages
-│   └── aur.txt                 # optional AUR packages
-├── scripts/
-│   ├── lib.sh                  # shared helpers
-│   ├── make-wallpaper.sh       # regenerate the wallpaper
-│   ├── restore.sh              # restore an install backup
-│   └── verify.sh               # check symlinks and commands
-├── hypr/.config/hypr/          # Hyprland, Hyprpaper, Hyprlock, Hypridle, scripts
-├── waybar/.config/waybar/      # bar config + Catppuccin CSS
-├── wofi/.config/wofi/          # launcher
-├── mako/.config/mako/          # notifications
-├── wlogout/.config/wlogout/    # power menu
-├── kitty/.config/kitty/        # terminal
-├── fish/.config/fish/          # shell config
-├── starship/.config/           # prompt
-├── tmux/.config/tmux/          # multiplexer
-├── btop/.config/btop/          # monitor + theme
-├── fastfetch/.config/fastfetch/
-├── cava/.config/cava/
-├── nvim/.config/nvim/          # LazyVim + Catppuccin
-└── git/.gitconfig
-```
-
-Every top-level directory is a Stow package. The only thing the installer needs
-from you is your sudo password (and your password at the login screen after
-autologin is disabled).
+- Arch Linux or CachyOS (the installer refuses other distributions).
+- KDE Plasma already installed; you can keep using it as the default session.
+- A normal user account with `sudo` rights (sudo is used only around pacman).
+- Network access for the first package install.
+- `git` and `stow` (the base install includes `stow`; `git` is already present
+  because you cloned the repo).
+- A synced package database. Run `sudo pacman -Syu` yourself first if it is
+  stale; the installer never does `-Sy` or a partial upgrade.
 
 ## Install
 
 ```bash
-git clone <your-repo-url> ~/dotfiles
-cd ~/dotfiles
+git clone <your-repo-url> ~/ABBA-rice
+cd ~/ABBA-rice
 ./install.sh --dry-run     # recommended first
 ./install.sh
 ```
 
-Already on this machine? The repo is at `~/dotfiles`:
+The plain run:
 
-```bash
-cd ~/dotfiles
-./install.sh
-```
+1. Refuses root and non-Arch systems.
+2. Reads `base/packages.txt` (`hyprland`, `kitty`, `stow`, `jq`, `curl`).
+3. Previews the package transaction (`pacman -Sp`), including new and upgraded
+   packages.
+4. Runs the pre-install red-flag check (`pacman -Fl`) for autostart entries,
+   systemd units, D-Bus services, profile.d, environment.d, fontconfig, udev,
+   modprobe, PAM, and MIME files. KDE-visible tray/autostart entries abort the
+   install. If the pacman files database is missing, the installer asks to run
+   `sudo pacman -Fy` (or does it automatically in non-interactive mode); this is
+   a file-list sync, not a package upgrade.
+5. Installs with `pacman -S --needed` (no `-Sy`, no partial upgrades).
+6. Stows `base/hypr` with `stow --simulate` first and `--no-folding`. Never
+   `--adopt`.
+7. If `enabled.txt` exists, installs and stows every recorded module and then
+   the matching `hosts/<hostname>/` package. This is the non-interactive
+   new-machine path.
+8. Checks autologin **read-only** and tells you to disable it yourself if the
+   session picker would be skipped.
+9. Runs `kde-guard` snapshots/diff and `lint-paths`.
 
-The installer asks for your sudo password once for the package installation
-and the login-manager change.
-
-The installer:
-
-1. Verifies CachyOS/Arch and that you are not running as root.
-2. Installs the packages in `packages/pacman.txt` (and AUR packages if
-   `paru`/`yay` is available).
-3. Backs up conflicting files to `~/.dotfiles-backup/<timestamp>/`.
-4. Stows all packages with `--no-folding --restow`.
-5. Refreshes fonts and generates the wallpaper if missing.
-6. Pre-installs Neovim plugins (network required).
-7. Disables Plasma Login Manager autologin so the session picker appears.
-8. Ensures the Hyprland Wayland session entry exists.
-9. Sets fish as the login shell if needed.
-10. Runs `scripts/verify.sh`.
-
-Useful flags:
+Flags:
 
 ```bash
 ./install.sh --dry-run
+./install.sh --yes
 ./install.sh --no-packages
-./install.sh --no-autologin
-./install.sh --no-warmup
-./install.sh --no-verify
-./install.sh --only fish,kitty,starship
-./install.sh --restore <timestamp>
 ```
 
-## Switching between KDE and Hyprland
+`--no-packages` stows configs only; it does not install or remove packages.
+`--yes` skips confirmations but still prints the package and red-flag lists.
 
-Switching is more than `Win+L` (that only locks the screen). It requires a
-logout, because KDE and Hyprland are separate graphical sessions:
+### enabled.txt and non-interactive runs
 
-1. After the first install, reboot once so Plasma Login Manager re-reads its
-   config (it caches the file until the service restarts).
-2. At the Plasma Login Manager greeter, open the session menu in the
-   **bottom-left** and pick **Hyprland**.
-3. Log in. To go back, log out of Hyprland and pick **Plasma**.
+`enabled.txt` is the list of modules you picked. When it exists, a plain
+`./install.sh` is non-interactive: it prints the preview and red-flag list and
+treats your recorded choices as prior approval. It still **aborts** on a
+forbidden KDE-visible tray/autostart entry or a non-scoped file conflict.
 
-KDE Plasma is still the preselected/default session. Your KDE config, theme,
-panel, wallpaper, and shortcuts were not touched.
+If you want prompts on a fresh-machine run anyway, remove `enabled.txt` or run
+`./install.sh add`.
 
-## Key binds (Hyprland)
+## Switching sessions
+
+Log out completely (locking the screen is not enough). At the greeter, open the
+session menu and choose **Hyprland**. KDE Plasma remains installed and
+selectable.
+
+If autologin is enabled, the session picker never appears. The installer only
+prints a notice; it **never edits** `/etc/plasmalogin.conf`, SDDM, or GDM. Disable
+autologin yourself in KDE's login-manager settings.
+
+## The slim starter
+
+`base/hypr/.config/hypr/hyprland.lua` contains only:
 
 | Keys | Action |
 |---|---|
-| `Super+Return` | Kitty |
-| `Super+D` | Wofi launcher |
-| `Super+E` | Dolphin |
-| `Super+Q` | Close window |
-| `Super+F` | Fullscreen |
-| `Super+V` | Toggle floating |
-| `Super+1..9,0` | Workspace 1–10 |
-| `Super+Shift+1..9,0` | Move window to workspace |
-| `Super+L` | Lock (Hyprlock) |
-| `Super+Shift+V` | Clipboard history |
-| `Print` | Region screenshot to clipboard + file |
-| `Shift+Print` | Full screenshot to clipboard + file |
-| `Super+Shift+E` | Power menu (wlogout) |
-| `Super+Shift+C` | cava in a floating kitty |
-| `Super+S` | Toggle scratchpad |
-| `Super+Shift+S` | Move window to scratchpad |
-| `Super+Arrows` | Focus window |
-| `Super+Shift+Arrows` | Move window |
-| `Super+Ctrl+Arrows` | Resize window |
-| `Super+Mouse wheel` | Switch workspaces |
+| `Super+Return` | Open the terminal (`kitty`) |
+| `Super+Q` | Close the active window |
+| `Super+M` | Exit Hyprland |
 
-Media/volume keys are bound through `wpctl` and `playerctl`.
+The monitor rule is the catch-all auto rule: `output=""`, preferred mode, auto
+position, auto scale. There are no hardcoded monitor names, no autostart
+entries, no environment variables, no theme, and no extra keybinds.
 
-## Customization
+Machine-specific values are loaded from `~/.config/hypr/host.lua` when a
+matching `hosts/<hostname>/` package is stowed. Without one, the auto defaults
+apply.
 
-### Change a config
-
-Edit the file in this repo, then restow the package:
+## Adding a component
 
 ```bash
-cd ~/dotfiles
-stow -R -t ~ hypr
+./install.sh add
 ```
 
-Hyprland reloads its config automatically when it changes. For Waybar:
+Pick one or more modules. The installer shows the package preview, runs the
+red-flag check, asks for confirmation, installs, stows the module, and records
+it in `enabled.txt`.
+
+Modules are package-only by default. Configure the app normally in your home
+directory, then record the files you want:
 
 ```bash
-killall waybar; waybar &
+./install.sh adopt waybar
 ```
 
-### Colors
+`adopt` moves **only** files under that module's declared `config_paths` into
+`modules/<name>/` and stows them back. It refuses paths outside those paths,
+refuses symlinks outside the repo, and never uses `stow --adopt`.
 
-Catppuccin Mocha values are repeated in the individual configs by design
-(no generated theme engine):
+Shared modules (`fish`, `starship`, `tmux`, `nvim`, `btop`, `fastfetch`, `cava`,
+`git`) are also reachable from KDE. They are never in the base, carry a visible
+warning in the catalog, and abort on conflict instead of backing files up.
 
-- `kitty/.config/kitty/kitty.conf`
-- `fish/.config/fish/config.fish` (`FZF_DEFAULT_OPTS`, bat theme)
-- `starship/.config/starship.toml`
-- `tmux/.config/tmux/tmux.conf`
-- `waybar/.config/waybar/style.css`
-- `hypr/.config/hypr/hyprland.lua`
-- `wofi/.config/wofi/style.css`
-- `mako/.config/mako/config`
-- `wlogout/.config/wlogout/style.css`
-
-### Monitors
-
-Hyprland 0.57+ uses the Lua configuration format. The monitor layout is in
-`hypr/.config/hypr/hyprland.lua`:
-
-```lua
-hl.monitor({ output = "DP-1", mode = "2560x1440@164.96", position = "4480x0", scale = 1 })
-hl.monitor({ output = "HDMI-A-2", mode = "2560x1440@59.95", position = "1920x0", scale = 1 })
-hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@60.00", position = "0x188", scale = 1 })
-hl.monitor({ output = "", mode = "preferred", position = "auto", scale = "auto" })
-```
-
-Delete the three explicit lines to let Hyprland auto-detect, or edit the names
-with `hyprctl monitors`.
-
-Waybar targets the same three outputs in
-`waybar/.config/waybar/config.jsonc`:
-
-```json
-"output": ["DP-1", "HDMI-A-2", "HDMI-A-1"]
-```
-
-### Wallpaper
+Remove a module with:
 
 ```bash
-./scripts/make-wallpaper.sh
+./install.sh remove waybar
 ```
 
-The PNG is committed at `hypr/.config/hypr/wallpapers/catppuccin-mocha.png`.
+Unstowing and removing it from `enabled.txt` is automatic. Package removal is
+offered only after asking, and uses `pacman -R` without `-s`/`-n` so
+dependencies stay installed. Packages used by the base or another enabled module
+are not offered for removal.
 
-### Packages
-
-Add packages to `packages/pacman.txt` or `packages/aur.txt`, then rerun:
+List modules and status:
 
 ```bash
-./install.sh --no-autologin --no-warmup
+./install.sh list
 ```
 
-### Add a new Stow package
+## Deploying on a new machine
+
+On the machine where you configured everything:
 
 ```bash
-mkdir -p ~/dotfiles/myapp/.config/myapp
-# put files under ~/dotfiles/myapp/.config/myapp/
-cd ~/dotfiles
-stow -t ~ myapp
+./install.sh add                 # record choices in enabled.txt
+./install.sh host                # optional per-machine values
+git add enabled.txt modules hosts docs
+git commit
 ```
 
-Add `myapp` to the `PACKAGES` array in `install.sh` and `scripts/restore.sh`
-if you want it handled by the installer.
-
-## Rollback
-
-Every conflicting file is moved to `~/.dotfiles-backup/<timestamp>/` and listed
-in `manifest.tsv`. To undo an install:
+On the new Arch/CachyOS machine:
 
 ```bash
-cd ~/dotfiles
-./install.sh --restore <timestamp>
+git clone <your-repo-url> ~/ABBA-rice
+cd ~/ABBA-rice
+./install.sh
 ```
 
-Then log out and back in. The original `/etc/plasmalogin.conf` is restored too.
+With `enabled.txt` present this installs the base, all recorded modules, and the
+matching host package without prompts. If the hostname does not match any
+`hosts/<hostname>/` directory, auto defaults apply.
 
-## Push to GitHub
-
-The repository is initialized locally; no remote is configured.
+## Per-machine values
 
 ```bash
-cd ~/dotfiles
-git remote add origin git@github.com:<your-user>/dotfiles.git
-git push -u origin main
+./install.sh host
 ```
 
-If you prefer HTTPS:
+`scripts/host.sh` reads, but does not modify:
+
+- `hyprctl monitors -j` — only inside a running Hyprland session; otherwise it
+  skips monitor rules and says so.
+- `localectl status` — keyboard layout/variant.
+- `/sys/class/drm/card*/device/vendor` — GPU vendor. An NVIDIA environment block
+  is written only when NVIDIA is detected and you confirm it.
+- `hostnamectl chassis` or `/sys/class/power_supply/BAT*` — laptop detection.
+  Laptops get a touchpad block and a Waybar battery/backlight fragment.
+
+Output goes to the committed `hosts/<hostname>/` package. It contains only
+`.config/hypr/host.lua` and, on laptops, `.config/waybar/host.jsonc`. The Waybar
+fragment has no `output` key; include it from your own Waybar config if you want
+it. No absolute `/home/...` paths are generated.
+
+## What the repo guarantees about KDE
+
+The repo **never**:
+
+- changes your login shell or `$SHELL` (no `chsh`);
+- edits `/etc`, `/usr`, login-manager config, `vconsole.conf`, environment,
+  profile.d, PAM, udev, modprobe, or Bluetooth configuration;
+- enables, disables, masks, or starts systemd units (system or user);
+- writes environment variables outside Hyprland's own config;
+- writes fontconfig files, sets a system font, or runs `fc-cache`;
+- touches KDE/Plasma/Konsole/GTK/dconf/themes/cursors;
+- overwrites files it did not create (`stow --adopt` is never used).
+
+Installing packages can add files. That is why the pre-install red-flag check
+exists and why KDE-visible tray/autostart entries abort the install.
+
+### Verify with kde-guard
+
+Take snapshots from a **TTY with no Plasma session active**; Plasma rewrites its
+own files while running.
 
 ```bash
-git remote add origin https://github.com/<your-user>/dotfiles.git
-git push -u origin main
+./install.sh doctor
 ```
 
-Before pushing, check that `git/.gitconfig` contains the name/email you want to
-publish. No SSH keys, tokens, or wallet files are stored in this repo.
-
-After the first Neovim launch, `nvim/.config/nvim/lazy-lock.json` will change.
-Commit it to keep plugin versions reproducible:
+`doctor` runs `scripts/lint-paths` and compares the two most recent
+`kde-guard` snapshots. You can also use the guard directly:
 
 ```bash
-git add nvim/.config/nvim/lazy-lock.json
-git commit -m "chore: update lazy-lock"
+scripts/kde-guard snapshot
+scripts/kde-guard diff <before-dir> <after-dir>
 ```
+
+The guard records: login shell; sha256 of readable `/etc` files; enabled system
+and user units; `pacman -Qq`; autostart/systemd-user/D-Bus/wayland-session
+listings; `fc-match` for monospace/sans-serif/serif/emoji; `kreadconfig6` fonts;
+and hashes of KDE config globs, the Plasma panel file, Konsole profiles, shell rc
+files, shared tool configs, and `~/.gitconfig`.
+
+New package files explain their own additions. A file changed by a repo module is
+reported as scoped (expected) or shared (warning). Anything else is a failure.
+Fonts must remain byte-identical in `fc-match`; otherwise the guard fails.
+
+**Do not claim KDE is untouched unless `./install.sh doctor` reports no
+unexplained changes.** Shared modules can affect KDE-visible tools by design.
+
+## Module catalog
+
+See [`docs/CATALOG.md`](docs/CATALOG.md) for the generated package list, scope,
+config paths, and warnings.
+
+<!-- BEGIN MODULE TABLE -->
+| Module | Scope | Category | Packages | Description | Warning |
+|---|---|---|---|---|---|
+| `btop` | shared | Monitor | btop | btop configuration (shared). | **Shared: may affect KDE** |
+| `cava` | shared | Visualizer | cava | cava audio visualizer configuration (shared). | **Shared: may affect KDE** |
+| `fastfetch` | shared | Fetch | fastfetch | fastfetch configuration (shared). | **Shared: may affect KDE** |
+| `fish` | shared | Shell | fish | Fish shell configuration (shared with KDE terminals). | **Shared: may affect KDE** |
+| `git` | shared | VCS | git | Git package metadata; the repo never ships ~/.gitconfig. | **Shared: may affect KDE** |
+| `hypridle` | scoped | Idle | hypridle | Idle/lock daemon for the Hyprland session. |  |
+| `hyprlock` | scoped | Lock | hyprlock | Screen locker for the Hyprland session. |  |
+| `hyprpaper` | scoped | Wallpaper | hyprpaper | Wallpaper daemon for the Hyprland session. |  |
+| `kitty` | scoped | Terminal | kitty | Terminal used by the starter (base install already provides it). |  |
+| `mako` | scoped | Notifications | mako | Notification daemon for the Hyprland session. |  |
+| `nvim` | shared | Editor | neovim | Neovim configuration (shared). | **Shared: may affect KDE** |
+| `starship` | shared | Prompt | starship | Starship prompt configuration (shared). | **Shared: may affect KDE** |
+| `tmux` | shared | Multiplexer | tmux | tmux configuration (shared). | **Shared: may affect KDE** |
+| `waybar` | scoped | Bar | waybar | Status bar for the Hyprland session. |  |
+| `wlogout` | scoped | Power menu | wlogout | Power menu for the Hyprland session. |  |
+| `wofi` | scoped | Launcher | wofi | Application launcher for the Hyprland session. |  |
+<!-- END MODULE TABLE -->
 
 ## Troubleshooting
 
-**No Hyprland entry at login**
+**No Hyprland entry at the login screen**
 ```bash
 ls /usr/share/wayland-sessions/
 ```
-If `hyprland.desktop` is missing, make sure the `hyprland` package is
-installed, then rerun `./install.sh --no-packages`.
+The `hyprland` package owns `hyprland.desktop`. If it is missing, the package is
+not installed; do not create the file by hand.
 
-**Autologin still skips the greeter**
-```bash
-grep -A3 '\[Autologin\]' /etc/plasmalogin.conf
-```
-`User=` should be absent. `Session=plasma.desktop` is kept so KDE remains the
-default choice. Reboot after the change; Plasma Login Manager caches its config.
+**Autologin skips the greeter**
+Disable autologin in KDE's login-manager settings. The installer only reads the
+config and prints a notice.
 
-**Hyprland starts but there is no bar**
-```bash
-waybar
-```
-Check the error output. The config is `~/.config/waybar/config.jsonc`; validate
-JSON with:
-```bash
-jq . ~/.config/waybar/config.jsonc
-```
+**Hyprland starts but there is no bar/launcher/notifications**
+Those are separate modules. Run `./install.sh add`, then start the component from
+your own Hyprland config. The repo does not autostart anything.
 
-**No wallpaper**
-```bash
-hyprpaper
-```
-Check that `~/.config/hypr/wallpapers/catppuccin-mocha.png` exists and that the
-path in `hyprpaper.conf` is correct.
+**A module conflict aborts the install**
+A scoped module may back up a conflicting regular file under
+`~/.local/state/<repo>/backup/<timestamp>/`. Shared modules never do; move the
+file yourself or choose a different module. The installer never overwrites a
+file it did not create.
 
-**Hyprland fails to start**
-Log back into KDE (it is untouched), then inspect:
-```bash
-cat ~/.local/share/hyprland/hyprland.log
-```
-or start it from a TTY with `Hyprland` to see the error.
+**stow is missing**
+Run without `--no-packages`, or install `stow` first.
 
-**Kitty/fish prompt looks wrong**
-```bash
-fish -n ~/.config/fish/config.fish   # syntax check
-starship --version
-```
-Make sure `JetBrainsMono Nerd Font` is installed:
-```bash
-fc-list | grep -i "JetBrainsMono Nerd Font"
-```
+**AUR packages**
+The catalog uses official packages only. If you add an `aur=` entry yourself,
+the installer uses an already-installed `paru`/`yay`, previews it, and asks per
+package. It never installs an AUR helper.
 
-**Neovim plugins did not install**
-Open `nvim` and run `:Lazy sync`. The first run needs network access.
+**Hyprland config errors**
+Start Hyprland from a TTY to see errors, or inspect the Hyprland log. The starter
+is intentionally small; put machine values in `hosts/<hostname>/` rather than
+editing shared configs.
+
+## Rollback
+
+- Remove one module: `./install.sh remove <module>`.
+- Unstow everything: `stow -D --dir=base --target="$HOME" hypr` and
+  `./install.sh remove <module>` for each module.
+- Restore a scoped conflict: copy the file back from
+  `~/.local/state/<repo>/backup/<timestamp>/` using its `manifest.tsv`.
+- There is **no `/etc` restore** because the repo never writes `/etc`.
+
+The old demo is preserved on the local `archive/old-demo` branch; it is not part
+of the new design.
 
 ## Notes
 
-- Hyprland 0.57+ uses `hyprland.lua`; legacy `hyprland.conf` is no longer loaded.
-- Hyprland is a separate session; KDE applications are not migrated.
-- The Hyprland monitor layout is tuned to the machine it was built on.
-- `bibata-cursor-theme-bin` is optional. Without an AUR helper the installer
-  skips it and Hyprland falls back to the default cursor.
-- `install.sh` intentionally refuses to run on non-Arch distributions.
+- Hyprland 0.55+ uses `hyprland.lua`; `hyprland.conf` is legacy.
+- The base terminal is `kitty`. If you want fish only inside that terminal, put
+  `shell /usr/bin/fish` in your own kitty config and adopt it; the login shell
+  is never changed.
+- No fonts are installed by the base. If you add a font package, it is opt-in and
+  `kde-guard` must show unchanged `fc-match` output.
+- The repo does not install a theme, cursor theme, prompt, or wallpaper.
