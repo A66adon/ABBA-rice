@@ -308,6 +308,10 @@ aur_install() {
   for pkg in "${pkgs[@]}"; do
     info "AUR package: $pkg"
     "$helper" -Si "$pkg" 2>/dev/null | sed -n '1,18p' || true
+    if (( ${NONINTERACTIVE:-0} && ! ${ASSUME_YES:-0} )); then
+      warn "Skipping AUR package $pkg in non-interactive mode; run ./install.sh add or pass --yes."
+      continue
+    fi
     if ! (( ${ASSUME_YES:-0} )); then
       confirm "Install AUR package $pkg with $helper?" || { warn "Skipping AUR package $pkg."; continue; }
     fi
@@ -317,6 +321,9 @@ aur_install() {
       "$helper" -S --needed --noconfirm "$pkg"
     else
       "$helper" -S --needed "$pkg"
+    fi
+    if (( ! ${DRY_RUN:-0} )); then
+      red_flag_installed "$pkg"
     fi
   done
 }
