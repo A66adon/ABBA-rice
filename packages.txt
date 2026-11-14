@@ -3,3 +3,4 @@ kitty
 polkit
 stow
 git
+xdg-desktop-portal-hyprland
