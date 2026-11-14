@@ -1,9 +1,0 @@
-# Base install: Hyprland plus the one terminal chosen for the starter.
-# Everything else is an opt-in module.
-hyprland
-kitty
-
-# Installer/guard helpers; not desktop components.
-stow
-jq
-curl

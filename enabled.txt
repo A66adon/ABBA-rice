@@ -1,2 +1,0 @@
-# Modules enabled by ./install.sh add. One module name per line.
-# This file is intentionally empty until you pick components.
