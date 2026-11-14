@@ -1,0 +1,5 @@
+hyprland
+kitty
+polkit
+stow
+git
