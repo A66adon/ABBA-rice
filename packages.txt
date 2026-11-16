@@ -4,3 +4,10 @@ polkit
 stow
 git
 xdg-desktop-portal-hyprland
+waybar
+swaync
+qt6-wayland
+hyprpaper
+grim
+swappy
+rofi
